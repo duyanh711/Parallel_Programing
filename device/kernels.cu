@@ -28,17 +28,19 @@ __global__ void forwardLayerKernel(float *input, float *weights, float *bias,
                                   float *output, int input_size, int output_size, 
                                   int batch_size, bool use_relu) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
     if (idx < batch_size * output_size) {
         int b = idx / output_size;
         int j = idx % output_size;
-        output[idx] = 0.0f;
+        
+        float sum = 0.0f;
+        
         for (int k = 0; k < input_size; k++) {
-            output[idx] += input[b * input_size + k] * weights[k * output_size + j];
+            sum += input[b * input_size + k] * weights[k * output_size + j];
         }
-        output[idx] = output[idx] + bias[j];
-        if (use_relu) {
-            output[idx] = fmaxf(0.0f, output[idx]);
-        }
+        
+        sum += bias[j];
+        output[idx] = use_relu ? fmaxf(0.0f, sum) : sum;
     }
 }
 
