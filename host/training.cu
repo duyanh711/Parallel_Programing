@@ -3,364 +3,260 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include <ctime>
 
-void Train::train(NeuralNetwork *network, float *training_data, int *labels)
+void train(NeuralNetwork *nn, float *X_train, int *y_train)
 {
-    // Allocate memory for intermediate layers
     float *hidden1 = (float *)malloc(BATCH_SIZE * HIDDEN1_SIZE * sizeof(float));
     float *hidden2 = (float *)malloc(BATCH_SIZE * HIDDEN2_SIZE * sizeof(float));
     float *output = (float *)malloc(BATCH_SIZE * OUTPUT_SIZE * sizeof(float));
-    float *output_error = (float *)malloc(BATCH_SIZE * OUTPUT_SIZE * sizeof(float));
-    float *hidden1_error = (float *)malloc(BATCH_SIZE * HIDDEN1_SIZE * sizeof(float));
-    float *hidden2_error = (float *)malloc(BATCH_SIZE * HIDDEN2_SIZE * sizeof(float));
+    float *del_output = (float *)malloc(BATCH_SIZE * OUTPUT_SIZE * sizeof(float));
+    float *d_ReLU_out1 = (float *)malloc(BATCH_SIZE * HIDDEN1_SIZE * sizeof(float));
+    float *d_ReLU_out2 = (float *)malloc(BATCH_SIZE * HIDDEN2_SIZE * sizeof(float));
 
     int num_batches = TRAIN_DATA_SIZE / BATCH_SIZE;
 
-    // Training loop
+    clock_t start = clock(), end;
+
     for (int epoch = 0; epoch < EPOCHS; epoch++)
     {
         float total_loss = 0.0f;
-        int total_correct = 0;
+        int correct = 0;
 
-        // Process each batch
         for (int batch = 0; batch < num_batches; batch++)
         {
             int start_idx = batch * BATCH_SIZE;
-            float *batch_data = training_data + start_idx * INPUT_SIZE;
-            int *batch_labels = labels + start_idx;
 
-            // Forward propagation
-            forward_pass(batch_data, hidden1, hidden2, output,
-                         network, BATCH_SIZE, start_idx);
+            forward_pass(X_train + start_idx * INPUT_SIZE, hidden1, hidden2,
+                         output, nn, BATCH_SIZE, start_idx);
 
-            // Calculate loss and accuracy
-            float batch_loss = compute_loss(output, batch_labels, BATCH_SIZE);
-            total_loss += batch_loss;
-            total_correct += validatePredictions(output, labels, start_idx, BATCH_SIZE, OUTPUT_SIZE);
+            total_loss += compute_loss(output, &y_train[start_idx], BATCH_SIZE);
+            correct += validatePredictions(output, y_train, start_idx, BATCH_SIZE, OUTPUT_SIZE);
 
-            // Calculate output layer error
             for (int b = 0; b < BATCH_SIZE; b++)
             {
                 for (int i = 0; i < OUTPUT_SIZE; i++)
                 {
-                    output_error[b * OUTPUT_SIZE + i] = output[b * OUTPUT_SIZE + i] -
-                                                        (i == batch_labels[b] ? 1.0f : 0.0f);
+                    del_output[b * OUTPUT_SIZE + i] = output[b * OUTPUT_SIZE + i] -
+                                                      ((i == y_train[start_idx + b]) ? 1.0f : 0.0f);
                 }
             }
 
-            // Backpropagation
-            backward_pass(batch_data, hidden1, hidden2, output,
-                          output_error, hidden1_error, hidden2_error,
-                          network, BATCH_SIZE, start_idx);
+            backward_pass(X_train + start_idx * INPUT_SIZE, hidden1, hidden2, output,
+                          del_output, d_ReLU_out1, d_ReLU_out2, nn, BATCH_SIZE, start_idx);
 
-            // Update weights
-            update_weights(network);
+            updateWeights(nn->weightsInputHidden1, nn->gradWeightsInputHidden1,
+                          nn->biasHidden1, nn->gradBiasHidden1,
+                          HIDDEN1_SIZE, INPUT_SIZE, LEARNING_RATE);
+            updateWeights(nn->weightsHidden1Hidden2, nn->gradWeightsHidden1Hidden2,
+                          nn->biasHidden2, nn->gradBiasHidden2,
+                          HIDDEN2_SIZE, HIDDEN1_SIZE, LEARNING_RATE);
+            updateWeights(nn->weightsHidden2Output, nn->gradWeightsHidden2Output,
+                          nn->biasOutput, nn->gradBiasOutput,
+                          OUTPUT_SIZE, HIDDEN2_SIZE, LEARNING_RATE);
         }
-
-        float avg_loss = total_loss / num_batches;
-        float accuracy = (float)total_correct / TRAIN_DATA_SIZE * 100.0f;
-        printf("Epoch %d/%d - Loss: %.4f, Accuracy: %.2f%%\n",
-               epoch + 1, EPOCHS, avg_loss, accuracy);
+        end = clock();
+        printf("Epoch %d/%d - Loss: %.4f, Accuracy: %.2f%%, Time: %.2f seconds\n",
+               epoch + 1, EPOCHS,
+               total_loss / num_batches,
+               100.0f * correct / TRAIN_DATA_SIZE,
+               (float)(end - start) / CLOCKS_PER_SEC);
+        start = clock();
     }
 
-    // Cleanup
     free(hidden1);
     free(hidden2);
     free(output);
-    free(output_error);
-    free(hidden1_error);
-    free(hidden2_error);
+    free(del_output);
+    free(d_ReLU_out1);
+    free(d_ReLU_out2);
 }
 
-void Train::test(NeuralNetwork *network, float *test_data, int *test_labels)
+void test(NeuralNetwork *nn, float *X_test, int *y_test)
 {
     float *hidden1 = (float *)malloc(BATCH_SIZE * HIDDEN1_SIZE * sizeof(float));
     float *hidden2 = (float *)malloc(BATCH_SIZE * HIDDEN2_SIZE * sizeof(float));
     float *output = (float *)malloc(BATCH_SIZE * OUTPUT_SIZE * sizeof(float));
 
     int num_batches = TEST_DATA_SIZE / BATCH_SIZE;
-    int total_correct = 0;
-    float total_loss = 0.0f;
+    int correct = 0;
 
     for (int batch = 0; batch < num_batches; batch++)
     {
         int start_idx = batch * BATCH_SIZE;
-        float *batch_data = test_data + start_idx * INPUT_SIZE;
-        int *batch_labels = test_labels + start_idx;
-
-        forward_pass(batch_data, hidden1, hidden2, output,
-                     network, BATCH_SIZE, start_idx);
-
-        float batch_loss = compute_loss(output, batch_labels, BATCH_SIZE);
-        total_loss += batch_loss;
-        total_correct += validatePredictions(output, test_labels, start_idx, BATCH_SIZE, OUTPUT_SIZE);
+        forward_pass(X_test + start_idx * INPUT_SIZE, hidden1, hidden2,
+                     output, nn, BATCH_SIZE, start_idx);
+        correct += validatePredictions(output, y_test, start_idx, BATCH_SIZE, OUTPUT_SIZE);
     }
 
-    float avg_loss = total_loss / num_batches;
-    float accuracy = (float)total_correct / TEST_DATA_SIZE * 100.0f;
-    printf("Test - Loss: %.4f, Accuracy: %.2f%%\n", avg_loss, accuracy);
+    printf("Test Accuracy: %.2f%%\n", 100.0f * correct / TEST_DATA_SIZE);
 
     free(hidden1);
     free(hidden2);
     free(output);
 }
 
-void Train::forward_pass(float *input_data, float *hidden1, float *hidden2, float *output,
-                         NeuralNetwork *network, int batch_size, int batch_offset)
+
+void forward_pass(float *input, float *hidden1, float *hidden2, float *output,
+                  NeuralNetwork *nn, int batch_size, int start_idx)
 {
-    // Input -> Hidden1 (với ReLU)
-    for (int b = 0; b < batch_size; b++)
+    forwardLayer(input, nn->weightsInputHidden1, nn->biasHidden1,
+                 hidden1, INPUT_SIZE, HIDDEN1_SIZE, batch_size, true);
+
+    forwardLayer(hidden1, nn->weightsHidden1Hidden2, nn->biasHidden2,
+                 hidden2, HIDDEN1_SIZE, HIDDEN2_SIZE, batch_size, true);
+
+    forwardLayer(hidden2, nn->weightsHidden2Output, nn->biasOutput,
+                 output, HIDDEN2_SIZE, OUTPUT_SIZE, batch_size, false);
+
+    softmax_cpu(output, batch_size, OUTPUT_SIZE);
+}
+
+void backward_pass(float *input, float *hidden1, float *hidden2, float *output,
+                   float *del_output, float *d_ReLU_out1, float *d_ReLU_out2,
+                   NeuralNetwork *nn, int batch_size, int start_idx)
+{
+    computeGradients(hidden2, del_output, nn->gradWeightsHidden2Output,
+                     nn->gradBiasOutput, batch_size, HIDDEN2_SIZE, OUTPUT_SIZE);
+
+    computeDeltaReLU(del_output, nn->weightsHidden2Output, hidden2,
+                     d_ReLU_out2, batch_size, OUTPUT_SIZE, HIDDEN2_SIZE);
+
+    computeGradients(hidden1, d_ReLU_out2, nn->gradWeightsHidden1Hidden2,
+                     nn->gradBiasHidden2, batch_size, HIDDEN1_SIZE, HIDDEN2_SIZE);
+
+    computeDeltaReLU(d_ReLU_out2, nn->weightsHidden1Hidden2, hidden1,
+                     d_ReLU_out1, batch_size, HIDDEN2_SIZE, HIDDEN1_SIZE);
+
+    computeGradients(input, d_ReLU_out1, nn->gradWeightsInputHidden1,
+                     nn->gradBiasHidden1, batch_size, INPUT_SIZE, HIDDEN1_SIZE);
+}
+
+void updateWeights(float *weights, const float *grad_weights,
+                   float *bias, const float *grad_bias,
+                   int output_size, int input_size, float learning_rate)
+{
+    for (int i = 0; i < input_size * output_size; i++)
     {
-        for (int i = 0; i < HIDDEN1_SIZE; i++)
+        weights[i] -= learning_rate * grad_weights[i];
+    }
+    for (int i = 0; i < output_size; i++)
+    {
+        bias[i] -= learning_rate * grad_bias[i];
+    }
+}
+
+float compute_loss(const float *output, const int *labels, int batch_size)
+{
+    float loss = 0.0f;
+    for (int i = 0; i < batch_size; i++)
+    {
+        int label = labels[i];
+        loss -= logf(output[i * OUTPUT_SIZE + label] + 1e-7f);
+    }
+    return loss / batch_size;
+}
+
+int validatePredictions(const float *output, const int *labels, int startIdx, int batchSize, int outputSize)
+{
+    int correct = 0;
+    for (int i = 0; i < batchSize; i++)
+    {
+        int predicted = 0;
+        for (int j = 1; j < outputSize; j++)
         {
-            float sum = 0.0f;
-            for (int j = 0; j < INPUT_SIZE; j++)
+            if (output[i * outputSize + j] > output[i * outputSize + predicted])
             {
-                sum += input_data[b * INPUT_SIZE + j] * network->weightsInputHidden1[j * HIDDEN1_SIZE + i];
+                predicted = j;
             }
-            sum += network->biasHidden1[i];
-            hidden1[b * HIDDEN1_SIZE + i] = fmaxf(0.0f, sum); // ReLU
+        }
+        if (predicted == labels[startIdx + i])
+        {
+            correct++;
         }
     }
+    return correct;
+}
 
-    // Hidden1 -> Hidden2 (với ReLU)
+void forwardLayer(float *input, float *weights, float *bias, float *output,
+                  int input_size, int output_size, int batch_size, bool use_relu)
+{
     for (int b = 0; b < batch_size; b++)
     {
-        for (int i = 0; i < HIDDEN2_SIZE; i++)
+        for (int j = 0; j < output_size; j++)
         {
             float sum = 0.0f;
-            for (int j = 0; j < HIDDEN1_SIZE; j++)
+            for (int k = 0; k < input_size; k++)
             {
-                sum += hidden1[b * HIDDEN1_SIZE + j] * network->weightsHidden1Hidden2[j * HIDDEN2_SIZE + i];
+                sum += input[b * input_size + k] * weights[k * output_size + j];
             }
-            sum += network->biasHidden2[i];
-            hidden2[b * HIDDEN2_SIZE + i] = fmaxf(0.0f, sum); // ReLU
-        }
-    }
-
-    // Hidden2 -> Output (không có ReLU)
-    for (int b = 0; b < batch_size; b++)
-    {
-        for (int i = 0; i < OUTPUT_SIZE; i++)
-        {
-            float sum = 0.0f;
-            for (int j = 0; j < HIDDEN2_SIZE; j++)
-            {
-                sum += hidden2[b * HIDDEN2_SIZE + j] * network->weightsHidden2Output[j * OUTPUT_SIZE + i];
-            }
-            sum += network->biasOutput[i];
-            output[b * OUTPUT_SIZE + i] = sum;
-        }
-    }
-
-    // Apply softmax to output
-    for (int b = 0; b < batch_size; b++)
-    {
-        float max_val = output[b * OUTPUT_SIZE];
-        for (int i = 1; i < OUTPUT_SIZE; i++)
-        {
-            max_val = fmaxf(max_val, output[b * OUTPUT_SIZE + i]);
-        }
-
-        float sum_exp = 0.0f;
-        for (int i = 0; i < OUTPUT_SIZE; i++)
-        {
-            output[b * OUTPUT_SIZE + i] = expf(output[b * OUTPUT_SIZE + i] - max_val);
-            sum_exp += output[b * OUTPUT_SIZE + i];
-        }
-
-        for (int i = 0; i < OUTPUT_SIZE; i++)
-        {
-            output[b * OUTPUT_SIZE + i] /= sum_exp;
+            sum += bias[j];
+            output[b * output_size + j] = use_relu ? fmaxf(0.0f, sum) : sum;
         }
     }
 }
 
-void Train::backward_pass(float *input, float *hidden1, float *hidden2, float *output,
-                          float *output_error, float *hidden1_error, float *hidden2_error,
-                          NeuralNetwork *network, int batch_size, int batch_offset)
+void softmax_cpu(float *x, int batch_size, int size)
 {
-    // Reset gradients
-    memset(network->gradWeightsHidden2Output, 0, HIDDEN2_SIZE * OUTPUT_SIZE * sizeof(float));
-    memset(network->gradWeightsHidden1Hidden2, 0, HIDDEN1_SIZE * HIDDEN2_SIZE * sizeof(float));
-    memset(network->gradWeightsInputHidden1, 0, INPUT_SIZE * HIDDEN1_SIZE * sizeof(float));
-    memset(network->gradBiasOutput, 0, OUTPUT_SIZE * sizeof(float));
-    memset(network->gradBiasHidden2, 0, HIDDEN2_SIZE * sizeof(float));
-    memset(network->gradBiasHidden1, 0, HIDDEN1_SIZE * sizeof(float));
-
-    // Compute output layer gradients
     for (int b = 0; b < batch_size; b++)
     {
-        for (int i = 0; i < HIDDEN2_SIZE; i++)
+        float max_val = x[b * size];
+        for (int i = 1; i < size; i++)
         {
-            for (int j = 0; j < OUTPUT_SIZE; j++)
+            max_val = fmaxf(max_val, x[b * size + i]);
+        }
+
+        float sum = 0.0f;
+        for (int i = 0; i < size; i++)
+        {
+            x[b * size + i] = expf(x[b * size + i] - max_val);
+            sum += x[b * size + i];
+        }
+
+        for (int i = 0; i < size; i++)
+        {
+            x[b * size + i] = fmaxf(x[b * size + i] / sum, 1e-7f);
+        }
+    }
+}
+
+// Backward propagation functions
+void computeGradients(float *input, float *delta, float *grad_weights,
+                      float *grad_bias, int batch_size, int input_size, int output_size)
+{
+    memset(grad_bias, 0, output_size * sizeof(float));
+    memset(grad_weights, 0, input_size * output_size * sizeof(float));
+
+    for (int b = 0; b < batch_size; b++)
+    {
+        for (int i = 0; i < input_size; i++)
+        {
+            for (int j = 0; j < output_size; j++)
             {
-                network->gradWeightsHidden2Output[i * OUTPUT_SIZE + j] +=
-                    hidden2[b * HIDDEN2_SIZE + i] * output_error[b * OUTPUT_SIZE + j];
+                grad_weights[i * output_size + j] += input[b * input_size + i] * delta[b * output_size + j];
                 if (i == 0)
                 {
-                    network->gradBiasOutput[j] += output_error[b * OUTPUT_SIZE + j];
-                }
-            }
-        }
-    }
-
-    // Compute hidden2 error
-    for (int b = 0; b < batch_size; b++)
-    {
-        for (int i = 0; i < HIDDEN2_SIZE; i++)
-        {
-            float sum = 0.0f;
-            for (int j = 0; j < OUTPUT_SIZE; j++)
-            {
-                sum += output_error[b * OUTPUT_SIZE + j] * network->weightsHidden2Output[i * OUTPUT_SIZE + j];
-            }
-            hidden2_error[b * HIDDEN2_SIZE + i] = sum * (hidden2[b * HIDDEN2_SIZE + i] > 0.0f);
-        }
-    }
-
-    // Compute hidden2 layer gradients
-    for (int b = 0; b < batch_size; b++)
-    {
-        for (int i = 0; i < HIDDEN1_SIZE; i++)
-        {
-            for (int j = 0; j < HIDDEN2_SIZE; j++)
-            {
-                network->gradWeightsHidden1Hidden2[i * HIDDEN2_SIZE + j] +=
-                    hidden1[b * HIDDEN1_SIZE + i] * hidden2_error[b * HIDDEN2_SIZE + j];
-                if (i == 0)
-                {
-                    network->gradBiasHidden2[j] += hidden2_error[b * HIDDEN2_SIZE + j];
-                }
-            }
-        }
-    }
-
-    // Compute hidden1 error
-    for (int b = 0; b < batch_size; b++)
-    {
-        for (int i = 0; i < HIDDEN1_SIZE; i++)
-        {
-            float sum = 0.0f;
-            for (int j = 0; j < HIDDEN2_SIZE; j++)
-            {
-                sum += hidden2_error[b * HIDDEN2_SIZE + j] * network->weightsHidden1Hidden2[i * HIDDEN2_SIZE + j];
-            }
-            hidden1_error[b * HIDDEN1_SIZE + i] = sum * (hidden1[b * HIDDEN1_SIZE + i] > 0.0f);
-        }
-    }
-
-    // Compute hidden1 layer gradients
-    for (int b = 0; b < batch_size; b++)
-    {
-        for (int i = 0; i < INPUT_SIZE; i++)
-        {
-            for (int j = 0; j < HIDDEN1_SIZE; j++)
-            {
-                network->gradWeightsInputHidden1[i * HIDDEN1_SIZE + j] +=
-                    input[b * INPUT_SIZE + i] * hidden1_error[b * HIDDEN1_SIZE + j];
-                if (i == 0)
-                {
-                    network->gradBiasHidden1[j] += hidden1_error[b * HIDDEN1_SIZE + j];
+                    grad_bias[j] += delta[b * output_size + j];
                 }
             }
         }
     }
 }
 
-void Train::update_weights(NeuralNetwork *network)
+void computeDeltaReLU(float *relu_del_out, float *weights, float *input_layer,
+                      float *relu_del, int batch_size, int output_size, int input_size)
 {
-    // Update weights
-    for (int i = 0; i < INPUT_SIZE; i++)
+    for (int b = 0; b < batch_size; b++)
     {
-        for (int j = 0; j < HIDDEN1_SIZE; j++)
+        for (int i = 0; i < input_size; i++)
         {
-            network->weightsInputHidden1[i * HIDDEN1_SIZE + j] -=
-                LEARNING_RATE * network->gradWeightsInputHidden1[i * HIDDEN1_SIZE + j] / BATCH_SIZE;
-        }
-    }
-
-    for (int i = 0; i < HIDDEN1_SIZE; i++)
-    {
-        for (int j = 0; j < HIDDEN2_SIZE; j++)
-        {
-            network->weightsHidden1Hidden2[i * HIDDEN2_SIZE + j] -=
-                LEARNING_RATE * network->gradWeightsHidden1Hidden2[i * HIDDEN2_SIZE + j] / BATCH_SIZE;
-        }
-    }
-
-    for (int i = 0; i < HIDDEN2_SIZE; i++)
-    {
-        for (int j = 0; j < OUTPUT_SIZE; j++)
-        {
-            network->weightsHidden2Output[i * OUTPUT_SIZE + j] -=
-                LEARNING_RATE * network->gradWeightsHidden2Output[i * OUTPUT_SIZE + j] / BATCH_SIZE;
-        }
-    }
-
-    // Update biases
-    for (int i = 0; i < HIDDEN1_SIZE; i++)
-    {
-        network->biasHidden1[i] -= LEARNING_RATE * network->gradBiasHidden1[i] / BATCH_SIZE;
-    }
-
-    for (int i = 0; i < HIDDEN2_SIZE; i++)
-    {
-        network->biasHidden2[i] -= LEARNING_RATE * network->gradBiasHidden2[i] / BATCH_SIZE;
-    }
-
-    for (int i = 0; i < OUTPUT_SIZE; i++)
-    {
-        network->biasOutput[i] -= LEARNING_RATE * network->gradBiasOutput[i] / BATCH_SIZE;
-    }
-}
-
-float Train::compute_loss(const float *network_output, const int *true_labels, int batch_size)
-{
-    float batch_loss = 0.0f;
-    for (int sample = 0; sample < batch_size; sample++)
-    {
-        int true_class = true_labels[sample];
-        float predicted_probability = network_output[sample * OUTPUT_SIZE + true_class];
-        batch_loss -= logf(predicted_probability + 1e-7f); // Add small epsilon for numerical stability
-    }
-    return batch_loss / batch_size;
-}
-
-int Train::validatePredictions(const float *network_output, const int *true_labels,
-                               int batch_offset, int batch_size, int num_classes)
-{
-    int correct_count = 0;
-
-    for (int sample = 0; sample < batch_size; sample++)
-    {
-        const float *sample_output = network_output + sample * num_classes;
-
-        // Find the predicted class (maximum output)
-        int predicted_class = 0;
-        float max_probability = sample_output[0];
-
-        for (int class_idx = 1; class_idx < num_classes; class_idx++)
-        {
-            if (sample_output[class_idx] > max_probability)
+            float sum = 0.0f;
+            for (int j = 0; j < output_size; j++)
             {
-                max_probability = sample_output[class_idx];
-                predicted_class = class_idx;
+                sum += relu_del_out[b * output_size + j] * weights[i * output_size + j];
             }
-        }
-
-        // Kiểm tra lại index của true_labels
-        if (predicted_class == true_labels[batch_offset + sample])
-        {
-            correct_count++;
+            relu_del[b * input_size + i] = sum * (input_layer[b * input_size + i] > 0.0f);
         }
     }
-
-    return correct_count;
 }
 
-void Train::print_training_progress(int epoch, float loss, float accuracy)
-{
-    printf("Epoch %d/%d - Loss: %.4f, Accuracy: %.2f%%\n",
-           epoch + 1, EPOCHS, loss, accuracy);
-}
