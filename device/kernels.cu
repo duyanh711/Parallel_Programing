@@ -1,95 +1,117 @@
 #include "kernels.cuh"
 #include <cmath>
 
-__global__ void softmax_kernel(float *x, int batch_size, int size) {
-    int b = blockIdx.x;
-    if (b < batch_size) {
-        // Find max value for numerical stability
-        float max_val = x[b * size];
-        for (int i = 1; i < size; i++) {
-            max_val = fmaxf(max_val, x[b * size + i]);
+__global__ void softmax_kernel(float *data, int batch_count, int feature_count)
+{
+    int batch_idx = blockIdx.x;
+    if (batch_idx < batch_count)
+    {
+        // Find maximum value in the batch for numerical stability
+        float max_val = data[batch_idx * feature_count];
+        for (int i = 1; i < feature_count; i++)
+        {
+            max_val = fmaxf(max_val, data[batch_idx * feature_count + i]);
         }
 
-        // Compute exp and sum
-        float sum = 0.0f;
-        for (int i = 0; i < size; i++) {
-            x[b * size + i] = expf(x[b * size + i] - max_val);
-            sum += x[b * size + i];
+        // Compute exponentials and their sum
+        float exp_sum = 0.0f;
+        for (int i = 0; i < feature_count; i++)
+        {
+            data[batch_idx * feature_count + i] = expf(data[batch_idx * feature_count + i] - max_val);
+            exp_sum += data[batch_idx * feature_count + i];
         }
 
-        // Normalize
-        for (int i = 0; i < size; i++) {
-            x[b * size + i] = fmaxf(x[b * size + i] / sum, 1e-7f);
+        // Normalize to compute softmax
+        for (int i = 0; i < feature_count; i++)
+        {
+            data[batch_idx * feature_count + i] = fmaxf(data[batch_idx * feature_count + i] / exp_sum, 1e-7f);
         }
     }
 }
 
-__global__ void forwardLayerKernel(float *input, float *weights, float *bias, 
-                                  float *output, int input_size, int output_size, 
-                                  int batch_size, bool use_relu) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    
-    if (idx < batch_size * output_size) {
-        int b = idx / output_size;
-        int j = idx % output_size;
-        
-        float sum = 0.0f;
-        
-        for (int k = 0; k < input_size; k++) {
-            sum += input[b * input_size + k] * weights[k * output_size + j];
+__global__ void forward_layer_kernel(float *inputs, float *weights, float *biases,
+                                     float *outputs, int input_dim, int output_dim,
+                                     int batch_count, bool apply_relu)
+{
+    int global_idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (global_idx < batch_count * output_dim)
+    {
+        int batch_idx = global_idx / output_dim;
+        int output_idx = global_idx % output_dim;
+
+        float activation = 0.0f;
+
+        for (int i = 0; i < input_dim; i++)
+        {
+            activation += inputs[batch_idx * input_dim + i] * weights[i * output_dim + output_idx];
         }
-        
-        sum += bias[j];
-        output[idx] = use_relu ? fmaxf(0.0f, sum) : sum;
+
+        activation += biases[output_idx];
+        outputs[global_idx] = apply_relu ? fmaxf(0.0f, activation) : activation;
     }
 }
 
-__global__ void compute_gradients_kernel(float *input, float *delta, 
-                                       float *grad_weights, float *grad_bias,
-                                       int batch_size, int input_size, int output_size) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < input_size * output_size) {
-        int i = idx / output_size;
-        int j = idx % output_size;
+__global__ void compute_gradients_kernel(float *inputs, float *output_deltas,
+                                         float *weight_gradients, float *bias_gradients,
+                                         int batch_count, int input_dim, int output_dim)
+{
+    int global_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (global_idx < input_dim * output_dim)
+    {
+        int input_idx = global_idx / output_dim;
+        int output_idx = global_idx % output_dim;
 
-        float grad_w = 0.0f;
-        if (i == 0)
-            grad_bias[j] = 0.0f;
-        for (int b = 0; b < batch_size; b++) {
-            grad_w += input[b * input_size + i] * delta[b * output_size + j];
-            if (i == 0)
-                grad_bias[j] += delta[b * output_size + j];
+        float weight_grad = 0.0f;
+        if (input_idx == 0)
+        {
+            bias_gradients[output_idx] = 0.0f;
         }
-        grad_weights[idx] = grad_w;
+
+        for (int batch_idx = 0; batch_idx < batch_count; batch_idx++)
+        {
+            weight_grad += inputs[batch_idx * input_dim + input_idx] * output_deltas[batch_idx * output_dim + output_idx];
+            if (input_idx == 0)
+            {
+                bias_gradients[output_idx] += output_deltas[batch_idx * output_dim + output_idx];
+            }
+        }
+        weight_gradients[global_idx] = weight_grad;
     }
 }
 
-__global__ void compute_delta_relu_kernel(float *relu_del_out, float *weights,
-                                        float *input_layer, float *relu_del,
-                                        int batch_size, int output_size, int input_size) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < batch_size * input_size) {
-        int i = idx / input_size;
-        int j = idx % input_size;
+__global__ void compute_delta_relu_kernel(float *output_deltas, float *weights,
+                                          float *input_layer, float *input_deltas,
+                                          int batch_count, int output_dim, int input_dim)
+{
+    int global_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (global_idx < batch_count * input_dim)
+    {
+        int batch_idx = global_idx / input_dim;
+        int input_idx = global_idx % input_dim;
 
-        relu_del[idx] = 0.0f;
-        for (int k = 0; k < output_size; k++) {
-            relu_del[idx] += relu_del_out[i * output_size + k] * weights[j * output_size + k];
+        input_deltas[global_idx] = 0.0f;
+        for (int output_idx = 0; output_idx < output_dim; output_idx++)
+        {
+            input_deltas[global_idx] += output_deltas[batch_idx * output_dim + output_idx] * weights[input_idx * output_dim + output_idx];
         }
-        relu_del[idx] *= (input_layer[idx] > 0.0f);
+        input_deltas[global_idx] *= (input_layer[global_idx] > 0.0f);
     }
 }
 
-__global__ void update_weights_kernel(float *weights, float *grad_weights,
-                                    float *bias, float *grad_bias,
-                                    int output_size, int input_size) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void update_weights_kernel(float *weights, float *weight_gradients,
+                                      float *biases, float *bias_gradients,
+                                      int output_dim, int input_dim)
+{
+    int global_idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (idx < input_size * output_size) {
-        weights[idx] -= LEARNING_RATE * grad_weights[idx];
+    if (global_idx < input_dim * output_dim)
+    {
+        weights[global_idx] -= LEARNING_RATE * weight_gradients[global_idx];
     }
 
-    if (idx < output_size) {
-        bias[idx] -= LEARNING_RATE * grad_bias[idx];
+    if (global_idx < output_dim)
+    {
+        biases[global_idx] -= LEARNING_RATE * bias_gradients[global_idx];
     }
 }
