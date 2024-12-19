@@ -1,5 +1,6 @@
 {
     "files.associations": {
+        "*.dbclient-js": "javascript",
         "atomic": "cpp",
         "bit": "cpp",
         "cctype": "cpp",
@@ -47,6 +48,10 @@
         "fstream": "cpp",
         "random": "cpp",
         "sstream": "cpp",
-        "string": "cpp"
+        "string": "cpp",
+        "format": "cpp",
+        "locale": "cpp",
+        "xlocmon": "cpp",
+        "xloctime": "cpp"
     }
 }
