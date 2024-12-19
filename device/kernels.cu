@@ -91,5 +91,3 @@ __global__ void update_weights_kernel(float *weights, float *grad_weights,
         bias[idx] -= LEARNING_RATE * grad_bias[idx];
     }
 }
-
-// ... (implement các kernel khác tương tự) 
