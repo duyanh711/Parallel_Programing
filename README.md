@@ -25,6 +25,7 @@ The implementation includes:
 - Make build system
 
 ## Project Structure
+```
 Parallel_Programing/
 ├── device/
 │ ├── neural_network.cuh
@@ -40,7 +41,7 @@ Parallel_Programing/
 │ └── main.cu
 ├── Makefile
 └── README.md
-
+```
 ## Building and Running
 
 ### Local Machine
