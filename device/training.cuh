@@ -18,7 +18,7 @@ private:
                               NeuralNetwork *nn, int batch_size, int start_idx);
 
     static void update_weights(NeuralNetwork *nn);
-    static int validatePredictions(const float *output, const int *labels,
-                                   int startIdx, int batchSize, int outputSize);
+    static int validate_predictions(const float *output, const int *labels,
+                                    int startIdx, int batchSize, int outputSize);
     static float compute_loss(const float *output, const int *labels, int batch_size);
 };
