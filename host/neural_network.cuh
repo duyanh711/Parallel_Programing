@@ -11,14 +11,18 @@
 #define EPOCHS 10
 #define LEARNING_RATE 0.01f
 
-typedef struct
+class NeuralNetwork
 {
+public:
     float *weightsInputHidden1, *weightsHidden1Hidden2, *weightsHidden2Output;
     float *biasHidden1, *biasHidden2, *biasOutput;
     float *gradWeightsInputHidden1, *gradWeightsHidden1Hidden2, *gradWeightsHidden2Output;
     float *gradBiasHidden1, *gradBiasHidden2, *gradBiasOutput;
-} NeuralNetwork;
 
-void initWeights(float *weights, int size);
-void initBias(float *bias, int size);
-void initializeNetwork(NeuralNetwork *nn);
+    NeuralNetwork();  // Constructor
+    ~NeuralNetwork(); // Destructor
+
+private:
+    void initWeights(float *weights, int size);
+    void initBias(float *bias, int size);
+};
